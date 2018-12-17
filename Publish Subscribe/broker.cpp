@@ -7,6 +7,7 @@
 #include <pthread.h>
 #define MAX_PENDING 20
 #define MAX_LINE 256
+#define MAX_NEWS 10
 
 using namespace std;
 
@@ -16,9 +17,10 @@ pthread_mutex_t pubMutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t subMutex = PTHREAD_MUTEX_INITIALIZER;
 
 //------------------------------
-map<string, string> newsTable;
+//map<string, string> newsTable;
+map<string, deque<string> > newsTable;
 map<string, vector<int> > interestTable;
-
+int operationCounter;
 
 //------------------------------
 
@@ -34,10 +36,15 @@ void notify(string subject, string newsContent, int socketID);
 
 void sendInterestList(int socketID);
 
+void *statistics(void *nothing);
+
 int main(){
+	operationCounter = 0;
 	int port;
 	printf("Digite o numero da porta a ser utilizada: ");
 	scanf("%d", &port);
+	pthread_t statisticsThread;
+	pthread_create(&statisticsThread, NULL, statistics, NULL);
 	acceptNewConnections(port);
 	return 0;
 }
@@ -47,10 +54,11 @@ void notify(string subject, string newsContent, int socketID){
 	string message = "Assunto: " + subject + ", Noticia: " + newsContent;
 	char *message_c = (char *)message.c_str();
 	if(socketID == -1){
-		for(int cont = 0 ; cont < clientsToNotify.size() ; cont++){
+		for(uint cont = 0 ; cont < clientsToNotify.size() ; cont++){
 			if(clientsToNotify[cont] != -1 && send(clientsToNotify[cont], message_c, strlen(message_c), 0) < 0){
 				perror("Failed to send message, removing client from list");
 				pthread_mutex_lock(&subMutex);
+				close(interestTable[subject][cont]);
 				interestTable[subject][cont] = -1;
 				pthread_mutex_unlock(&subMutex);
 			}
@@ -78,7 +86,14 @@ void publish(void *input){
 	
 	//MUTEX LOCKED
 	pthread_mutex_lock(&pubMutex);
-	newsTable[subject] = newsContent;
+	//newsTable[subject] = newsContent;
+	if(newsTable[subject].size() < MAX_NEWS){
+		newsTable[subject].push_back(newsContent);
+	}
+	else{
+		newsTable[subject].pop_front();
+		newsTable[subject].push_back(newsContent);
+	}
 	pthread_mutex_unlock(&pubMutex);
 	//MUTEX UNLOCKED
 	
@@ -117,8 +132,11 @@ void subscribe(int socketID, char* subject_c){
 		aux = true;
 	}
 	pthread_mutex_unlock(&subMutex);
-	if(aux)
-		notify(subject, newsTable[subject], socketID);
+	if(aux){
+		for(uint cont = 0 ; cont < newsTable[subject].size() ; cont++){
+			notify(subject, newsTable[subject][cont], socketID);
+		}
+	}
 }
 
 void *connectionHandler(void *sock){
@@ -129,22 +147,28 @@ void *connectionHandler(void *sock){
 		int callType;
 		if(recv(socketID, input, sizeof(input), 0) < 0){
 			perror("Failed to receive message");
+			close(socketID);
+			pthread_exit(NULL);
 			break;
 		}
 		sscanf(input, "%d", &callType);
 		//pthread_t newThread;
 		if(callType == 0){ //Publish
 			//pthread_create(&newThread, NULL, publish, (void *)(input+2));
+			operationCounter++;
 			publish((void *)(input+2));
 		}
 		else if(callType == 1){ //Subscribe
 			//pthread_create(&newThread, NULL, subscribe, (void *)(input+2));
+			operationCounter++;
 			subscribe(socketID, (input+2)); 
 		}
 		else if(callType == 2){ //Request Interest List
+			operationCounter++;
 			sendInterestList(socketID);
 		}
 	}
+	return NULL;
 }
 
 void acceptNewConnections(int port){
@@ -169,11 +193,20 @@ void acceptNewConnections(int port){
 		newSocketID = accept(socketID, (struct sockaddr *)&clientAddress, &clientAddressLength);
 		if(newSocketID < 0){
 			perror("Failed to create socket for incoming client");
-			return;
+			continue;
+			//return;
 		}
 		printf("Connection successful!\n");
 		sockets.push_back(newSocketID);
 		pthread_t newThread;
 		pthread_create(&newThread, NULL, connectionHandler, (void *)&newSocketID);
+	}
+}
+
+void *statistics(void *nothing){
+	while(1){
+		sleep(1);
+		printf("Number of procedures called in the last second: %d\n", operationCounter);
+		operationCounter = 0;
 	}
 }

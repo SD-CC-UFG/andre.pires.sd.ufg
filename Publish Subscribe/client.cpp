@@ -9,6 +9,8 @@
 
 using namespace std;
 
+vector<string> interests = {"Jogos", "Eleicoes", "Tempo"};
+
 typedef struct {
 	struct addrinfo *address;
 	int socketID;
@@ -46,6 +48,7 @@ void *receiveMessage(void *sock){
 		memset(message, '\0', sizeof(message));
 		if(recv(socketID, message, sizeof(message), 0) < 0){
 			perror("Failed to receive message");
+			pthread_exit(NULL);
 			return NULL;
 		}
 		printf("\n%s\n", message);
@@ -56,7 +59,7 @@ void *sendMessage(void *sock){
 	int socketID = *((int*)sock);
 	int op;
 	while(1){
-		printf("1. Inscrever (Subscribe)\n2. Publicar (Publish)\n3. Auto-publicar\n4. Encerrar thread de envio\nDigite sua opcao: ");
+		printf("1. Inscrever (Subscribe)\n2. Publicar (Publish)\n3. Auto-publicar\n4. Modo de simulacao\n5. Encerrar thread de envio\nDigite sua opcao: ");
 		scanf("%d", &op);
 		if(op == 1){
 			char request[2] = "2", *message_c;
@@ -94,15 +97,42 @@ void *sendMessage(void *sock){
 			printf("Digite o topico em qual deseja auto-publicar noticias: ");
 			cin >> aux1;
 			while(1){
-				char message[LINE_MAX];
+				char message[MAX_LINE];
 				memset(message, '\0', sizeof(message));
 				int num = rand()%10000;
 				sprintf(message, "0 %s %cnews%d", (char *)aux1.c_str(), aux1[0], num);
 				if(send(socketID, message, strlen(message), 0) < 0){
 					perror("Failed to send message");
-				continue;
+					continue;
 				}	
 				sleep(1);
+			}
+		}
+		else if(op == 4){
+			while(1){
+				char aux1[MAX_LINE];
+				memset(aux1, '\0', sizeof(aux1));
+				sprintf(aux1, "%s%d", (char *)interests[rand()%interests.size()].c_str(), rand()%10);
+				int op = rand()%2;
+				if(op == 0){ //Publish
+					char message[MAX_LINE];
+					memset(message, '\0', sizeof(message));
+					int num = rand()%10000;
+					sprintf(message, "0 %s %cnews%d", aux1, aux1[0], num);
+					if(send(socketID, message, strlen(message), 0) < 0){
+						perror("Failed to send message");
+						continue;
+					}	
+				}
+				else{ //Subscribe
+					char message[MAX_LINE];
+					memset(message, '\0', sizeof(message));
+					sprintf(message, "1 %s", aux1);
+					if(send(socketID, message, strlen(message), 0) < 0){
+						perror("Failed to send message");
+						continue;
+					}	
+				}
 			}
 		}
 		else{
